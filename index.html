@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carnot Cycle Efficiency Calculator</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background: #030712; }
+  input[type=range] { accent-color: #6366f1; }
+  canvas { display: block; }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4">
+<div class="max-w-5xl mx-auto">
+  <h1 class="text-3xl font-bold text-center mb-1 text-indigo-400">Carnot Cycle Efficiency Calculator</h1>
+  <p class="text-center text-gray-400 mb-6 text-sm">Theoretical maximum efficiency between two heat reservoirs</p>
+
+  <!-- Inputs -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-gray-900 rounded-xl p-5 border border-gray-800">
+      <h2 class="text-lg font-semibold mb-4 text-indigo-300">Temperature Inputs</h2>
+      <div class="mb-5">
+        <div class="flex justify-between mb-1">
+          <label class="text-sm font-medium text-orange-300">Hot Source T<sub>H</sub></label>
+          <span id="thVal" class="text-sm font-bold text-orange-400">800 K</span>
+        </div>
+        <input type="range" id="thSlider" min="310" max="2000" value="800" step="1" class="w-full h-2 rounded">
+        <div class="flex justify-between text-xs text-gray-500 mt-1"><span>310 K</span><span>2000 K</span></div>
+      </div>
+      <div>
+        <div class="flex justify-between mb-1">
+          <label class="text-sm font-medium text-blue-300">Cold Sink T<sub>C</sub></label>
+          <span id="tcVal" class="text-sm font-bold text-blue-400">300 K</span>
+        </div>
+        <input type="range" id="tcSlider" min="50" max="600" value="300" step="1" class="w-full h-2 rounded">
+        <div class="flex justify-between text-xs text-gray-500 mt-1"><span>50 K</span><span>600 K</span></div>
+      </div>
+    </div>
+
+    <div class="bg-gray-900 rounded-xl p-5 border border-gray-800 flex flex-col justify-center items-center">
+      <div class="text-center">
+        <p class="text-sm text-gray-400 mb-1">Carnot Efficiency</p>
+        <p class="text-6xl font-black text-green-400" id="effVal">62.5%</p>
+        <p class="text-sm text-gray-400 mt-2">η = 1 − T<sub>C</sub>/T<sub>H</sub></p>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-3 w-full text-center">
+        <div class="bg-gray-800 rounded-lg p-2">
+          <p class="text-xs text-gray-400">Work Output</p>
+          <p id="workOut" class="text-base font-bold text-yellow-400">625 kJ/1000kJ</p>
+        </div>
+        <div class="bg-gray-800 rounded-lg p-2">
+          <p class="text-xs text-gray-400">Heat Rejected</p>
+          <p id="heatRej" class="text-base font-bold text-red-400">375 kJ/1000kJ</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Canvases -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+      <h2 class="text-sm font-semibold mb-2 text-gray-300">P-V Diagram (Carnot Cycle)</h2>
+      <canvas id="pvCanvas" width="420" height="320" class="w-full rounded"></canvas>
+    </div>
+    <div class="bg-gray-900 rounded-xl p-4 border border-gray-800">
+      <h2 class="text-sm font-semibold mb-2 text-gray-300">T<sub>H</sub> vs Efficiency (T<sub>C</sub> fixed)</h2>
+      <canvas id="effCanvas" width="420" height="320" class="w-full rounded"></canvas>
+    </div>
+  </div>
+
+  <!-- Comparison Table -->
+  <div class="bg-gray-900 rounded-xl p-5 border border-gray-800 mb-6">
+    <h2 class="text-lg font-semibold mb-3 text-indigo-300">Engine Efficiency Comparison</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-gray-400 border-b border-gray-700">
+            <th class="text-left py-2 pr-4">Engine Type</th>
+            <th class="text-right pr-4">T<sub>H</sub> (K)</th>
+            <th class="text-right pr-4">T<sub>C</sub> (K)</th>
+            <th class="text-right pr-4">Carnot Limit</th>
+            <th class="text-right">Typical Actual</th>
+          </tr>
+        </thead>
+        <tbody id="compTable">
+        </tbody>
+      </table>
+    </div>
+    <p class="text-xs text-gray-500 mt-2">* Your engine row uses current slider values</p>
+  </div>
+</div>
+
+<script>
+const engines = [
+  { name: "Steam Engine (Historical)", th: 500, tc: 300, actual: "10–15%" },
+  { name: "Modern Steam Turbine",       th: 810, tc: 310, actual: "40–45%" },
+  { name: "Gasoline Engine",            th: 800, tc: 300, actual: "25–35%" },
+  { name: "Diesel Engine",              th: 1000, tc: 300, actual: "35–45%" },
+  { name: "Gas Turbine (Jet)",          th: 1600, tc: 300, actual: "35–50%" },
+  { name: "Nuclear Power Plant",        th: 600, tc: 300, actual: "30–35%" },
+];
+
+const thSlider = document.getElementById('thSlider');
+const tcSlider = document.getElementById('tcSlider');
+
+function carnotEff(th, tc) { return Math.max(0, 1 - tc / th); }
+
+function update() {
+  const TH = parseFloat(thSlider.value);
+  const TC = parseFloat(tcSlider.value);
+  if (TC >= TH) { tcSlider.value = TH - 10; return update(); }
+
+  const eta = carnotEff(TH, TC);
+  document.getElementById('thVal').textContent = TH + ' K';
+  document.getElementById('tcVal').textContent = TC + ' K';
+  document.getElementById('effVal').textContent = (eta * 100).toFixed(1) + '%';
+  document.getElementById('workOut').textContent = (eta * 1000).toFixed(0) + ' kJ/1000kJ';
+  document.getElementById('heatRej').textContent = ((1 - eta) * 1000).toFixed(0) + ' kJ/1000kJ';
+
+  drawPV(TH, TC, eta);
+  drawEffGraph(TC);
+  drawTable(TH, TC, eta);
+}
+
+function drawPV(TH, TC, eta) {
+  const canvas = document.getElementById('pvCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, W, H);
+
+  const pad = { l: 55, r: 20, t: 20, b: 45 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+
+  // Draw axes
+  ctx.strokeStyle = '#4B5563';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + ch);
+  ctx.lineTo(pad.l + cw, pad.t + ch);
+  ctx.stroke();
+
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = '12px monospace';
+  ctx.fillText('P', pad.l - 20, pad.t + ch / 2);
+  ctx.fillText('V', pad.l + cw / 2, pad.t + ch + 35);
+  ctx.fillText('P-V Diagram', pad.l + cw / 2 - 40, pad.t - 5);
+
+  // Carnot cycle ellipse approximation
+  // Points: 1(top-left), 2(top-right), 3(bottom-right), 4(bottom-left)
+  const ratio = eta;
+  const cx = pad.l + cw * 0.5;
+  const cy = pad.t + ch * 0.5;
+  const rx = cw * 0.38;
+  const ry = ch * 0.38;
+
+  // Isothermal expansion (1->2): top arc (TH), orange
+  // Adiabatic expansion (2->3): right arc, purple
+  // Isothermal compression (3->4): bottom arc (TC), blue
+  // Adiabatic compression (4->1): left arc, green
+
+  const p1 = { x: cx - rx * 0.6, y: cy - ry };
+  const p2 = { x: cx + rx * 0.6, y: cy - ry * (1 - ratio * 0.5) };
+  const p3 = { x: cx + rx * 0.5, y: cy + ry };
+  const p4 = { x: cx - rx * 0.55, y: cy + ry * (1 - ratio * 0.4) };
+
+  function drawCurvedArc(from, to, color, label, labelDir) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5;
+    const midX = (from.x + to.x) / 2;
+    const midY = (from.y + to.y) / 2;
+    const cp1x = midX + (to.y - from.y) * 0.25;
+    const cp1y = midY - (to.x - from.x) * 0.25;
+    ctx.moveTo(from.x, from.y);
+    ctx.quadraticCurveTo(cp1x, cp1y, to.x, to.y);
+    ctx.stroke();
+
+    // Arrow
+    const dx = to.x - cp1x, dy = to.y - cp1y;
+    const ang = Math.atan2(dy, dx);
+    ctx.beginPath();
+    ctx.fillStyle = color;
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - 10 * Math.cos(ang - 0.4), to.y - 10 * Math.sin(ang - 0.4));
+    ctx.lineTo(to.x - 10 * Math.cos(ang + 0.4), to.y - 10 * Math.sin(ang + 0.4));
+    ctx.closePath();
+    ctx.fill();
+
+    if (label) {
+      ctx.fillStyle = color;
+      ctx.font = '11px sans-serif';
+      let lx = (from.x + to.x) / 2 + (labelDir === 'up' ? -30 : labelDir === 'down' ? -30 : 8);
+      let ly = (from.y + to.y) / 2 + (labelDir === 'up' ? -12 : labelDir === 'down' ? 18 : 0);
+      ctx.fillText(label, lx, ly);
+    }
+  }
+
+  drawCurvedArc(p1, p2, '#f97316', '① Isothermal Exp. (TH)', 'up');
+  drawCurvedArc(p2, p3, '#a78bfa', '② Adiabatic Exp.', 'right');
+  drawCurvedArc(p3, p4, '#60a5fa', '③ Isothermal Comp. (TC)', 'down');
+  drawCurvedArc(p4, p1, '#34d399', '④ Adiabatic Comp.', 'left');
+
+  // Points
+  [[p1,'1'],[p2,'2'],[p3,'3'],[p4,'4']].forEach(([p, n]) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(n, p.x + 5, p.y - 5);
+  });
+
+  // Shade work area
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  const steps = 40;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    // top path: p1 -> p2 (quadratic)
+    const cp1x = (p1.x + p2.x) / 2 + (p2.y - p1.y) * 0.25;
+    const cp1y = (p1.y + p2.y) / 2 - (p2.x - p1.x) * 0.25;
+    const bx = (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * cp1x + t * t * p2.x;
+    const by = (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * cp1y + t * t * p2.y;
+    ctx.lineTo(bx, by);
+  }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cp2x = (p2.x + p3.x) / 2 + (p3.y - p2.y) * 0.25;
+    const cp2y = (p2.y + p3.y) / 2 - (p3.x - p2.x) * 0.25;
+    const bx = (1 - t) * (1 - t) * p2.x + 2 * (1 - t) * t * cp2x + t * t * p3.x;
+    const by = (1 - t) * (1 - t) * p2.y + 2 * (1 - t) * t * cp2y + t * t * p3.y;
+    ctx.lineTo(bx, by);
+  }
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cp3x = (p3.x + p4.x) / 2 + (p4.y - p3.y) * 0.25;
+    const cp3y = (p3.y + p4.y) / 2 - (p4.x - p3.x) * 0.25;
+    const bx = (1 - t) * (1 - t) * p3.x + 2 * (1 - t) * t * cp3x + t * t * p4.x;
+    const by = (1 - t) * (1 - t) * p3.y + 2 * (1 - t) * t * cp3y + t * t * p4.y;
+    ctx.lineTo(bx, by);
+  }
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(99,102,241,0.12)';
+  ctx.fill();
+
+  // W label
+  ctx.fillStyle = '#818cf8';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('W = Q_H × η', cx - 45, cy + 5);
+
+  // TH/TC labels
+  ctx.fillStyle = '#f97316';
+  ctx.font = '11px sans-serif';
+  ctx.fillText('TH = ' + TH + ' K', pad.l + 2, p1.y - 5);
+  ctx.fillStyle = '#60a5fa';
+  ctx.fillText('TC = ' + TC + ' K', pad.l + 2, p3.y + 14);
+}
+
+function drawEffGraph(TC) {
+  const canvas = document.getElementById('effCanvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, W, H);
+
+  const pad = { l: 55, r: 20, t: 25, b: 45 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+
+  const TH_min = TC + 10;
+  const TH_max = 2000;
+
+  ctx.strokeStyle = '#4B5563';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, pad.t + ch);
+  ctx.lineTo(pad.l + cw, pad.t + ch);
+  ctx.stroke();
+
+  // Y ticks (0–100%)
+  for (let y = 0; y <= 100; y += 20) {
+    const py = pad.t + ch - (y / 100) * ch;
+    ctx.strokeStyle = '#374151';
+    ctx.beginPath();
+    ctx.moveTo(pad.l, py); ctx.lineTo(pad.l + cw, py);
+    ctx.stroke();
+    ctx.fillStyle = '#6B7280';
+    ctx.font = '10px monospace';
+    ctx.fillText(y + '%', pad.l - 35, py + 4);
+  }
+
+  // X ticks
+  for (let x = 500; x <= 2000; x += 500) {
+    const px = pad.l + ((x - TH_min) / (TH_max - TH_min)) * cw;
+    if (px < pad.l || px > pad.l + cw) continue;
+    ctx.strokeStyle = '#374151';
+    ctx.beginPath();
+    ctx.moveTo(px, pad.t); ctx.lineTo(px, pad.t + ch);
+    ctx.stroke();
+    ctx.fillStyle = '#6B7280';
+    ctx.font = '10px monospace';
+    ctx.fillText(x + 'K', px - 15, pad.t + ch + 15);
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = '12px sans-serif';
+  ctx.fillText('Efficiency (%)', pad.l - 50, pad.t - 8);
+  ctx.fillText('TH (K)  [TC = ' + TC + ' K fixed]', pad.l + cw / 2 - 70, pad.t + ch + 35);
+
+  // Efficiency curve
+  ctx.beginPath();
+  ctx.strokeStyle = '#34d399';
+  ctx.lineWidth = 2.5;
+  let first = true;
+  for (let thv = TH_min; thv <= TH_max; thv += 5) {
+    const eff = carnotEff(thv, TC);
+    const px = pad.l + ((thv - TH_min) / (TH_max - TH_min)) * cw;
+    const py = pad.t + ch - eff * ch;
+    if (first) { ctx.moveTo(px, py); first = false; }
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Current TH marker
+  const TH = parseFloat(thSlider.value);
+  const curEff = carnotEff(TH, TC);
+  const mx = pad.l + ((TH - TH_min) / (TH_max - TH_min)) * cw;
+  const my = pad.t + ch - curEff * ch;
+  ctx.beginPath();
+  ctx.arc(mx, my, 6, 0, Math.PI * 2);
+  ctx.fillStyle = '#f59e0b';
+  ctx.fill();
+  ctx.strokeStyle = '#fbbf24';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#fbbf24';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.fillText((curEff * 100).toFixed(1) + '%', mx + 8, my - 5);
+
+  // Fill under curve
+  ctx.beginPath();
+  first = true;
+  for (let thv = TH_min; thv <= TH_max; thv += 5) {
+    const eff = carnotEff(thv, TC);
+    const px = pad.l + ((thv - TH_min) / (TH_max - TH_min)) * cw;
+    const py = pad.t + ch - eff * ch;
+    if (first) { ctx.moveTo(px, pad.t + ch); ctx.lineTo(px, py); first = false; }
+    else ctx.lineTo(px, py);
+  }
+  ctx.lineTo(pad.l + cw, pad.t + ch);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(52,211,153,0.08)';
+  ctx.fill();
+}
+
+function drawTable(TH, TC, eta) {
+  const tbody = document.getElementById('compTable');
+  const rows = [
+    ...engines,
+    { name: "▶ Your Engine", th: TH, tc: TC, actual: "—" }
+  ];
+  tbody.innerHTML = rows.map(e => {
+    const carn = carnotEff(e.th, e.tc);
+    const isUser = e.name.startsWith('▶');
+    return `<tr class="${isUser ? 'bg-indigo-950 font-semibold' : 'hover:bg-gray-800'} border-b border-gray-800">
+      <td class="py-2 pr-4 ${isUser ? 'text-indigo-300' : 'text-gray-300'}">${e.name}</td>
+      <td class="text-right pr-4 text-orange-300">${e.th}</td>
+      <td class="text-right pr-4 text-blue-300">${e.tc}</td>
+      <td class="text-right pr-4 text-green-400 font-bold">${(carn * 100).toFixed(1)}%</td>
+      <td class="text-right text-yellow-300">${e.actual}</td>
+    </tr>`;
+  }).join('');
+}
+
+thSlider.addEventListener('input', update);
+tcSlider.addEventListener('input', update);
+update();
+</script>
+</body>
+</html>
